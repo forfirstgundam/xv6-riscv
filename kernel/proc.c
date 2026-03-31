@@ -716,14 +716,13 @@ void procdump(void)
 int getnice(int pid)
 {
   struct proc *p;
-  int value = -1;
 
   for (p = proc; p < &proc[NPROC]; p++)
   {
     acquire(&p->lock);
     if (p->pid == pid && p->state != UNUSED)
     {
-      value = p->nice;
+      int value = p->nice;
       release(&p->lock);
       return value;
     }
@@ -768,6 +767,9 @@ void ps(int pid)
   struct proc *p;
   char *state;
 
+  if (pid == 0)
+    printf("name\tpid\tstate\tpriority\n");
+
   for (p = proc; p < &proc[NPROC]; p++)
   {
     acquire(&p->lock);
@@ -777,9 +779,9 @@ void ps(int pid)
       if (p->state >= 0 && p->state < NELEM(states) && states[p->state])
         state = states[p->state];
       else
-        state = "???";
+        state = "unknown";
 
-      printf("%s %d %s %d\n", p->name, p->pid, state, p->nice);
+      printf("%s\t%d\t%s\t%d\n", p->name, p->pid, state, p->nice);
     }
 
     release(&p->lock);
