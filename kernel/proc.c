@@ -943,7 +943,7 @@ void ps(int pid)
         state = "unknown";
 
       // printf("%s\t%d\t%s\t%d\n", p->name, p->pid, state, p->nice);
-      printf("%s\t%d\t%s\t%d\t%lu\t%lu\t%lu\t%lu\t%s\n",
+      printf("%s\t%d\t%s\t\t%d\t\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t%s\n",
              p->name,
              p->pid,
              state,
