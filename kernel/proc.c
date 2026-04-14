@@ -16,6 +16,8 @@ struct proc *initproc;
 int nextpid = 1;
 struct spinlock pid_lock;
 
+extern uint ticks;
+extern struct spinlock tickslock;
 extern void forkret(void);
 static void freeproc(struct proc *p);
 
@@ -129,7 +131,7 @@ static void update_eligibility(void)
 // Project 2 function for vdeadline
 static void calc_vdeadline(struct proc *p)
 {
-  p->vdeadline = p->vruntime + (BASE_SLICE * 1024) / p->weight;
+  p->vdeadline = p->vruntime + (BASE_SLICE * 1000 * 1024) / p->weight;
 }
 
 extern char trampoline[]; // trampoline.S
@@ -919,9 +921,15 @@ void ps(int pid)
 
   struct proc *p;
   char *state;
+  uint totaltick;
+
+  acquire(&tickslock);
+  totaltick = ticks * 1000;
+  release(&tickslock);
 
   if (pid == 0)
-    printf("name\tpid\tstate\tpriority\n");
+    printf("name\tpid\tstate\tpriority\truntime/weight\truntime\tvruntime\tvdeadline\tis_eligible\ttick %d\n", totaltick);
+  // printf("name\tpid\tstate\tpriority\n");
 
   for (p = proc; p < &proc[NPROC]; p++)
   {
@@ -934,7 +942,17 @@ void ps(int pid)
       else
         state = "unknown";
 
-      printf("%s\t%d\t%s\t%d\n", p->name, p->pid, state, p->nice);
+      // printf("%s\t%d\t%s\t%d\n", p->name, p->pid, state, p->nice);
+      printf("%s\t%d\t%s\t%d\t%lu\t%lu\t%lu\t%lu\t%s\n",
+             p->name,
+             p->pid,
+             state,
+             p->nice,
+             p->runtime / p->weight,
+             p->runtime,
+             p->vruntime,
+             p->vdeadline,
+             p->is_eligible ? "true" : "false");
     }
 
     release(&p->lock);
