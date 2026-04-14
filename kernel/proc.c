@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#define BASE_SLICE 5
 
 struct cpu cpus[NCPU];
 
@@ -170,7 +171,13 @@ found:
   p->pid = allocpid();
   p->state = USED;
   p->nice = 20;
+  // Project 2 related parameters
   p->weight = nice_to_weight[p->nice];
+  p->runtime = 0;
+  p->vruntime = 0;
+  p->remain_slice = BASE_SLICE;
+  p->vdeadline = p->vruntime + (BASE_SLICE * 1024) / p->weight;
+  p->eligible = 0;
 
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0)
@@ -346,7 +353,13 @@ int kfork(void)
 
   pid = np->pid;
   np->nice = p->nice;
-  np->weight = nice_to_weight[p->nice];
+  // Project 2
+  np->weight = nice_to_weight[np->nice];
+  np->runtime = 0;
+  np->vruntime = p->vruntime;
+  np->remain_slice = BASE_SLICE;
+  np->vdeadline = np->vruntime + (BASE_SLICE * 1024) / np->weight;
+  np->eligible = 0;
 
   release(&np->lock);
 
