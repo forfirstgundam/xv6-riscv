@@ -510,6 +510,9 @@ void scheduler(void)
     // processes are waiting. Then turn them back off
     // to avoid a possible race between an interrupt
     // and wfi.
+    // Project 2
+    struct proc *best = 0;
+
     intr_on();
     intr_off();
 
@@ -517,21 +520,34 @@ void scheduler(void)
     for (p = proc; p < &proc[NPROC]; p++)
     {
       acquire(&p->lock);
-      if (p->state == RUNNABLE)
+      if (p->state == RUNNABLE && p->is_eligible)
       {
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+
+        // Project 2
+        if (best == 0 || p->vdeadline < best->vdeadline)
+        {
+          if (best != 0)
+            release(&best->lock);
+          best = p;
+          continue;
+        }
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
       }
       release(&p->lock);
+    }
+    if (best != 0)
+    {
+      best->state = RUNNING;
+      c->proc = best;
+      swtch(&c->context, &best->context);
+      c->proc = 0;
+      release(&best->lock);
+      found = 1;
     }
     if (found == 0)
     {
