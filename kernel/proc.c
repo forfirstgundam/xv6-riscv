@@ -126,6 +126,12 @@ static void update_eligibility(void)
   }
 }
 
+// Project 2 function for vdeadline
+static void calc_vdeadline(struct proc *p)
+{
+  p->vdeadline = p->vruntime + (BASE_SLICE * 1024) / p->weight;
+}
+
 extern char trampoline[]; // trampoline.S
 
 // helps ensure that wakeups of wait()ing
@@ -240,7 +246,7 @@ found:
   p->runtime = 0;
   p->vruntime = 0;
   p->remain_slice = BASE_SLICE;
-  p->vdeadline = p->vruntime + (BASE_SLICE * 1024) / p->weight;
+  calc_vdeadline(p);
   p->is_eligible = 0;
 
   // Allocate a trapframe page.
@@ -422,7 +428,7 @@ int kfork(void)
   np->runtime = 0;
   np->vruntime = p->vruntime;
   np->remain_slice = BASE_SLICE;
-  np->vdeadline = np->vruntime + (BASE_SLICE * 1024) / np->weight;
+  calc_vdeadline(np);
   np->is_eligible = 0;
 
   release(&np->lock);
@@ -744,7 +750,7 @@ void wakeup(void *chan)
 
         // Project 2
         p->remain_slice = BASE_SLICE;
-        p->vdeadline = p->vruntime + (BASE_SLICE * 1024) / p->weight;
+        calc_vdeadline(p);
         p->is_eligible = 0;
       }
       release(&p->lock);
@@ -891,6 +897,7 @@ int setnice(int pid, int value)
     {
       p->nice = value;
       p->weight = nice_to_weight[p->nice];
+      calc_vdeadline(p);
       release(&p->lock);
       return 0;
     }
@@ -977,70 +984,5 @@ int waitpid(int pid)
     }
 
     sleep(p, &wait_lock);
-  }
-}
-
-static void
-lag_value(uint64 *v0, uint64 *sum_weight, uint64 *sum_delta_weighted)
-{
-  // Not actual lag value
-  // but as indicated in instructions
-  struct proc *p;
-  int first = 1;
-
-  *v0 = 0;
-  *sum_weight = 0;
-  *sum_delta_weighted = 0;
-
-  for (p = proc; p < &proc[NPROC]; p++)
-  {
-    acquire(&p->lock);
-    if (p->state == RUNNABLE || p->state == RUNNING)
-    {
-      if (first || p->vruntime < *v0)
-      {
-        *v0 = p->vruntime;
-        first = 0;
-      }
-    }
-    release(&p->lock);
-  }
-
-  if (first)
-    return;
-
-  for (p = proc; p < &proc[NPROC]; p++)
-  {
-    acquire(&p->lock);
-    if (p->state == RUNNABLE || p->state == RUNNING)
-    {
-      *sum_weight += p->weight;
-      *sum_delta_weighted += (p->vruntime - *v0) * p->weight;
-    }
-    release(&p->lock);
-  }
-}
-
-static void
-update_eligibility(void)
-{
-  struct proc *p;
-  uint64 v0, sum_weight, sum_delta_weighted;
-
-  lag_value(&v0, &sum_weight, &sum_delta_weighted);
-
-  for (p = proc; p < &proc[NPROC]; p++)
-  {
-    acquire(&p->lock);
-    if (p->state == RUNNABLE || p->state == RUNNING)
-    {
-      uint64 rhs = (p->vruntime - v0) * sum_weight;
-      p->is_eligible = (sum_delta_weighted >= rhs);
-    }
-    else
-    {
-      p->is_eligible = 0;
-    }
-    release(&p->lock);
   }
 }

@@ -178,7 +178,7 @@ void clockintr()
   // ask for the next timer interrupt. this also clears
   // the interrupt request. 1000000 is about a tenth
   // of a second.
-  // Project 2 - timer to be thousanth of second
+  // Project 2 - timer to be hundreth of second
   w_stimecmp(r_time() + 100000);
 }
 
