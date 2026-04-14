@@ -109,7 +109,7 @@ struct proc
   uint64 vruntime;
   uint64 vdeadline;
   int remain_slice;
-  int eligible;
+  int is_eligible;
 
   // wait_lock must be held when using this:
   struct proc *parent; // Parent process

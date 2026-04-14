@@ -177,7 +177,7 @@ found:
   p->vruntime = 0;
   p->remain_slice = BASE_SLICE;
   p->vdeadline = p->vruntime + (BASE_SLICE * 1024) / p->weight;
-  p->eligible = 0;
+  p->is_eligible = 0;
 
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0)
@@ -359,7 +359,7 @@ int kfork(void)
   np->vruntime = p->vruntime;
   np->remain_slice = BASE_SLICE;
   np->vdeadline = np->vruntime + (BASE_SLICE * 1024) / np->weight;
-  np->eligible = 0;
+  np->is_eligible = 0;
 
   release(&np->lock);
 
@@ -659,6 +659,11 @@ void wakeup(void *chan)
       if (p->state == SLEEPING && p->chan == chan)
       {
         p->state = RUNNABLE;
+
+        // Project 2
+        p->remain_slice = BASE_SLICE;
+        p->vdeadline = p->vruntime + (BASE_SLICE * 1024) / p->weight;
+        p->is_eligible = 0;
       }
       release(&p->lock);
     }
