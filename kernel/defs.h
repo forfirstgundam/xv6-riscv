@@ -107,6 +107,7 @@ int setnice(int pid, int value);
 void ps(int pid);
 uint64 meminfo(void);
 int waitpid(int pid);
+int on_tick(void);
 
 // swtch.S
 void swtch(struct context *, struct context *);

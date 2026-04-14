@@ -986,3 +986,35 @@ int waitpid(int pid)
     sleep(p, &wait_lock);
   }
 }
+
+int on_tick(void)
+{
+  struct proc *p = myproc();
+
+  if (p == 0)
+    return 0;
+
+  acquire(&p->lock);
+
+  if (p->state != RUNNING)
+  {
+    release(&p->lock);
+    return 0;
+  }
+
+  // one timer tick = 1000 millitick units
+  p->runtime += 1000;
+  p->vruntime += (1000 * 1024) / p->weight;
+  p->remain_slice--;
+
+  if (p->remain_slice <= 0)
+  {
+    p->remain_slice = BASE_SLICE;
+    calc_vdeadline(p);
+    release(&p->lock);
+    return 1;
+  }
+
+  release(&p->lock);
+  return 0;
+}
