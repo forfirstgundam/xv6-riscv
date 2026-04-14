@@ -18,6 +18,49 @@ struct spinlock pid_lock;
 extern void forkret(void);
 static void freeproc(struct proc *p);
 
+// nice value to weight hard-coded list
+static int nice_to_weight[40] = {
+    /* nice  0 */ 88761,
+    /* nice  1 */ 71755,
+    /* nice  2 */ 56483,
+    /* nice  3 */ 46273,
+    /* nice  4 */ 36291,
+    /* nice  5 */ 29154,
+    /* nice  6 */ 23254,
+    /* nice  7 */ 18705,
+    /* nice  8 */ 14949,
+    /* nice  9 */ 11916,
+    /* nice 10 */ 9548,
+    /* nice 11 */ 7620,
+    /* nice 12 */ 6100,
+    /* nice 13 */ 4904,
+    /* nice 14 */ 3906,
+    /* nice 15 */ 3121,
+    /* nice 16 */ 2501,
+    /* nice 17 */ 1991,
+    /* nice 18 */ 1586,
+    /* nice 19 */ 1277,
+    /* nice 20 */ 1024,
+    /* nice 21 */ 820,
+    /* nice 22 */ 655,
+    /* nice 23 */ 526,
+    /* nice 24 */ 423,
+    /* nice 25 */ 335,
+    /* nice 26 */ 272,
+    /* nice 27 */ 215,
+    /* nice 28 */ 172,
+    /* nice 29 */ 137,
+    /* nice 30 */ 110,
+    /* nice 31 */ 87,
+    /* nice 32 */ 70,
+    /* nice 33 */ 56,
+    /* nice 34 */ 45,
+    /* nice 35 */ 36,
+    /* nice 36 */ 29,
+    /* nice 37 */ 23,
+    /* nice 38 */ 18,
+    /* nice 39 */ 15};
+
 extern char trampoline[]; // trampoline.S
 
 // helps ensure that wakeups of wait()ing
@@ -127,6 +170,7 @@ found:
   p->pid = allocpid();
   p->state = USED;
   p->nice = 20;
+  p->weight = nice_to_weight[p->nice];
 
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0)
@@ -302,6 +346,7 @@ int kfork(void)
 
   pid = np->pid;
   np->nice = p->nice;
+  np->weight = nice_to_weight[p->nice];
 
   release(&np->lock);
 
@@ -745,6 +790,7 @@ int setnice(int pid, int value)
     if (p->pid == pid && p->state != UNUSED)
     {
       p->nice = value;
+      p->weight = nice_to_weight[p->nice];
       release(&p->lock);
       return 0;
     }
