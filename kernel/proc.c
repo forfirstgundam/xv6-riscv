@@ -62,6 +62,70 @@ static int nice_to_weight[40] = {
     /* nice 38 */ 18,
     /* nice 39 */ 15};
 
+// Project 2 functions for eligibility
+static void lag_value(uint64 *v0, uint64 *sum_weight, uint64 *sum_delta_weighted)
+{
+  // Not actual lag value
+  // but as indicated in instructions
+  struct proc *p;
+  int first = 1;
+
+  *v0 = 0;
+  *sum_weight = 0;
+  *sum_delta_weighted = 0;
+
+  for (p = proc; p < &proc[NPROC]; p++)
+  {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE || p->state == RUNNING)
+    {
+      if (first || p->vruntime < *v0)
+      {
+        *v0 = p->vruntime;
+        first = 0;
+      }
+    }
+    release(&p->lock);
+  }
+
+  if (first)
+    return;
+
+  for (p = proc; p < &proc[NPROC]; p++)
+  {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE || p->state == RUNNING)
+    {
+      *sum_weight += p->weight;
+      *sum_delta_weighted += (p->vruntime - *v0) * p->weight;
+    }
+    release(&p->lock);
+  }
+}
+
+static void update_eligibility(void)
+{
+  struct proc *p;
+  uint64 v0, sum_weight, sum_delta_weighted;
+
+  lag_value(&v0, &sum_weight, &sum_delta_weighted);
+
+  for (p = proc; p < &proc[NPROC]; p++)
+  {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE || p->state == RUNNING)
+    {
+      uint64 rhs = (p->vruntime - v0) * sum_weight;
+      p->is_eligible = (sum_delta_weighted >= rhs);
+    }
+    else
+    {
+      p->is_eligible = 0;
+    }
+    release(&p->lock);
+  }
+}
+
 extern char trampoline[]; // trampoline.S
 
 // helps ensure that wakeups of wait()ing
@@ -510,13 +574,15 @@ void scheduler(void)
     // processes are waiting. Then turn them back off
     // to avoid a possible race between an interrupt
     // and wfi.
-    // Project 2
+    // Project 2 updated
     struct proc *best = 0;
 
     intr_on();
     intr_off();
 
     int found = 0;
+    update_eligibility();
+
     for (p = proc; p < &proc[NPROC]; p++)
     {
       acquire(&p->lock);
@@ -911,5 +977,70 @@ int waitpid(int pid)
     }
 
     sleep(p, &wait_lock);
+  }
+}
+
+static void
+lag_value(uint64 *v0, uint64 *sum_weight, uint64 *sum_delta_weighted)
+{
+  // Not actual lag value
+  // but as indicated in instructions
+  struct proc *p;
+  int first = 1;
+
+  *v0 = 0;
+  *sum_weight = 0;
+  *sum_delta_weighted = 0;
+
+  for (p = proc; p < &proc[NPROC]; p++)
+  {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE || p->state == RUNNING)
+    {
+      if (first || p->vruntime < *v0)
+      {
+        *v0 = p->vruntime;
+        first = 0;
+      }
+    }
+    release(&p->lock);
+  }
+
+  if (first)
+    return;
+
+  for (p = proc; p < &proc[NPROC]; p++)
+  {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE || p->state == RUNNING)
+    {
+      *sum_weight += p->weight;
+      *sum_delta_weighted += (p->vruntime - *v0) * p->weight;
+    }
+    release(&p->lock);
+  }
+}
+
+static void
+update_eligibility(void)
+{
+  struct proc *p;
+  uint64 v0, sum_weight, sum_delta_weighted;
+
+  lag_value(&v0, &sum_weight, &sum_delta_weighted);
+
+  for (p = proc; p < &proc[NPROC]; p++)
+  {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE || p->state == RUNNING)
+    {
+      uint64 rhs = (p->vruntime - v0) * sum_weight;
+      p->is_eligible = (sum_delta_weighted >= rhs);
+    }
+    else
+    {
+      p->is_eligible = 0;
+    }
+    release(&p->lock);
   }
 }
