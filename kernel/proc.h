@@ -124,3 +124,15 @@ struct proc
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };
+
+// project 3 mmap area
+struct mmap_area
+{
+  struct file *f;
+  uint64 addr;
+  int length;
+  int offset;
+  int prot;
+  int flags;
+  struct proc *p;
+};

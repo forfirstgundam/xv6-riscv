@@ -3,6 +3,9 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 #include "proc.h"
 #include "defs.h"
 #define BASE_SLICE 5
@@ -15,6 +18,10 @@ struct proc *initproc;
 
 int nextpid = 1;
 struct spinlock pid_lock;
+
+// project 3 mmap related
+struct mmap_area mmap_areas[NMMAPAREA];
+struct spinlock mmap_lock;
 
 extern uint ticks;
 extern struct spinlock tickslock;
@@ -166,6 +173,12 @@ void procinit(void)
 
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+
+  // project 3
+  initlock(&mmap_lock, "mmap_area");
+  for (int i = 0; i < NMMAPAREA; i++)
+    mmap_areas[i].p = 0;
+  
   for (p = proc; p < &proc[NPROC]; p++)
   {
     initlock(&p->lock, "proc");
@@ -1034,5 +1047,72 @@ int on_tick(void)
   }
 
   release(&p->lock);
+  return 0;
+}
+
+// project 3 mmap helper
+uint64
+do_mmap(uint64 addr, int length, int prot, int flags, int fd, int offset)
+{
+  struct proc *p = myproc();
+  struct file *f = 0;
+  uint64 start;
+  int i;
+
+  if (addr % PGSIZE != 0)
+    return 0;
+
+  if (length <= 0 || length % PGSIZE != 0)
+    return 0;
+
+  if (prot != PROT_READ && prot != (PROT_READ | PROT_WRITE))
+    return 0;
+
+  start = MMAPBASE + addr;
+
+  if (flags & MAP_ANONYMOUS)
+  {
+    if (fd != -1 || offset != 0)
+      return 0;
+  }
+  else
+  {
+    if (fd < 0 || fd >= NOFILE)
+      return 0;
+
+    f = p->ofile[fd];
+    if (f == 0)
+      return 0;
+
+    if ((prot & PROT_READ) && !f->readable)
+      return 0;
+
+    if ((prot & PROT_WRITE) && !f->writable)
+      return 0;
+  }
+
+  acquire(&mmap_lock);
+
+  for (i = 0; i < NMMAPAREA; i++)
+  {
+    if (mmap_areas[i].p == 0)
+    {
+      mmap_areas[i].f = f;
+      mmap_areas[i].addr = start;
+      mmap_areas[i].length = length;
+      mmap_areas[i].offset = offset;
+      mmap_areas[i].prot = prot;
+      mmap_areas[i].flags = flags;
+      mmap_areas[i].p = p;
+
+      if (f)
+        filedup(f);
+
+      release(&mmap_lock);
+      return start;
+    }
+  }
+
+  release(&mmap_lock);
   return 0;
 }

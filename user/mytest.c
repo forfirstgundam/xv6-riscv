@@ -1,46 +1,37 @@
 #include "kernel/types.h"
+#include "kernel/stat.h"
 #include "user/user.h"
+#include "kernel/fcntl.h"
+#include "kernel/memlayout.h"
+#include "kernel/param.h"
+#include "kernel/spinlock.h"
+#include "kernel/sleeplock.h"
+#include "kernel/fs.h"
+#include "kernel/syscall.h"
 
 int main(void)
 {
-    printf("----memory test - project 3------------\n");
+    uint64 a;
+    int fd;
+
+    printf("---- mmap bookkeeping test ----\n");
+
+    a = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0);
+    printf("anon mmap returned: %p\n", a);
+
+    fd = open("README", O_RDONLY);
+    if (fd < 0)
+    {
+        printf("open README failed\n");
+        exit(1);
+    }
+
+    a = mmap(4096, 4096, PROT_READ, 0, fd, 0);
+    printf("file mmap returned: %p\n", a);
+
+    close(fd);
+
     printf("freemem = %d\n", freemem());
-    // int pid;
-
-    // printf("meminfo = %d\n", (int)meminfo());
-
-    // printf("my pid = %d\n", getpid());
-    // printf("default nice = %d\n", getnice(getpid()));
-
-    // printf("setnice(getpid(), 10) -> %d\n", setnice(getpid(), 10));
-    // printf("new nice = %d\n", getnice(getpid()));
-
-    // printf("setnice(getpid(), -1) -> %d\n", setnice(getpid(), -1));
-    // printf("setnice(getpid(), 40) -> %d\n", setnice(getpid(), 40));
-    // printf("setnice(9999, 10) -> %d\n", setnice(9999, 10));
-
-    // printf("getnice(9999) -> %d\n", getnice(9999));
-
-    // printf("all processes:\n");
-    // ps(0);
-
-    // printf("ps(9999): should print nothing below\n");
-    // ps(9999);
-    // printf("done ps(9999)\n");
-
-    // printf("waitpid(9999) -> %d\n", waitpid(9999));
-
-    // pid = fork();
-    // if (pid == 0)
-    // {
-    //     printf("child pid = %d\n", getpid());
-    //     printf("child nice = %d\n", getnice(getpid()));
-    //     exit(0);
-    // }
-    // else
-    // {
-    //     printf("waitpid(%d) -> %d\n", pid, waitpid(pid));
-    // }
 
     exit(0);
 }

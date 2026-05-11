@@ -157,7 +157,21 @@ sys_waitpid(void)
 uint64
 sys_mmap(void)
 {
-  return 0;
+  uint64 addr;
+  int length;
+  int prot;
+  int flags;
+  int fd;
+  int offset;
+
+  argaddr(0, &addr);
+  argint(1, &length);
+  argint(2, &prot);
+  argint(3, &flags);
+  argint(4, &fd);
+  argint(5, &offset);
+
+  return do_mmap(addr, length, prot, flags, fd, offset);
 }
 
 uint64
