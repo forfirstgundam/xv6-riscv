@@ -3,7 +3,7 @@
 
 int main(void)
 {
-    printf("----memory test - project 3------------");
+    printf("----memory test - project 3------------\n");
     printf("freemem = %d\n", freemem());
     // int pid;
 
