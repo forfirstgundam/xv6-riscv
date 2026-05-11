@@ -962,7 +962,7 @@ void ps(int pid)
 uint64
 meminfo(void)
 {
-  return freemem();
+  return memf();
 }
 
 int waitpid(int pid)

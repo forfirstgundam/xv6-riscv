@@ -59,7 +59,7 @@ void ireclaim(int);
 void *kalloc(void);
 void kfree(void *);
 void kinit(void);
-uint64 freemem(void);
+uint64 memf(void);
 
 // log.c
 void initlog(int, struct superblock *);
@@ -108,6 +108,9 @@ void ps(int pid);
 uint64 meminfo(void);
 int waitpid(int pid);
 int on_tick(void);
+uint64 mmap(uint64 addr, int length, int prot, int flags, int fd, int offset);
+int munmap(uint64 addr);
+int freemem(void);
 
 // swtch.S
 void swtch(struct context *, struct context *);

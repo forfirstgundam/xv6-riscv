@@ -81,7 +81,7 @@ kalloc(void)
 }
 
 uint64
-freemem(void)
+memf(void)
 {
   struct run *r;
   uint64 count = 0;
