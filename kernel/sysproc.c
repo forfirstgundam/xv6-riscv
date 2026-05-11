@@ -169,5 +169,5 @@ sys_munmap(void)
 uint64
 sys_freemem(void)
 {
-  return 0;
+  return freemem();
 }
