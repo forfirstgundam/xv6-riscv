@@ -1116,3 +1116,79 @@ do_mmap(uint64 addr, int length, int prot, int flags, int fd, int offset)
   release(&mmap_lock);
   return 0;
 }
+
+int mmap_pagefault(uint64 va, int is_write)
+{
+  struct proc *p = myproc();
+  struct mmap_area ma;
+  uint64 faultva;
+  char *mem;
+  int found = 0;
+  int perm;
+
+  faultva = PGROUNDDOWN(va);
+
+  acquire(&mmap_lock);
+
+  for (int i = 0; i < NMMAPAREA; i++)
+  {
+    if (mmap_areas[i].p == p &&
+        faultva >= mmap_areas[i].addr &&
+        faultva < mmap_areas[i].addr + mmap_areas[i].length)
+    {
+      ma = mmap_areas[i]; // copy metadata, do not hold spinlock during file I/O
+      found = 1;
+      break;
+    }
+  }
+
+  release(&mmap_lock);
+
+  if (!found)
+    return -1;
+
+  if (is_write && !(ma.prot & PROT_WRITE))
+    return -1;
+
+  mem = kalloc();
+  if (mem == 0)
+    return -1;
+
+  memset(mem, 0, PGSIZE);
+
+  if (!(ma.flags & MAP_ANONYMOUS))
+  {
+    int n;
+    uint fileoff;
+
+    if (ma.f == 0 || ma.f->ip == 0)
+    {
+      kfree(mem);
+      return -1;
+    }
+
+    fileoff = ma.offset + (faultva - ma.addr);
+
+    ilock(ma.f->ip);
+    n = readi(ma.f->ip, 0, (uint64)mem, fileoff, PGSIZE);
+    iunlock(ma.f->ip);
+
+    if (n < 0)
+    {
+      kfree(mem);
+      return -1;
+    }
+  }
+
+  perm = PTE_U | PTE_R;
+  if (ma.prot & PROT_WRITE)
+    perm |= PTE_W;
+
+  if (mappages(p->pagetable, faultva, PGSIZE, (uint64)mem, perm) < 0)
+  {
+    kfree(mem);
+    return -1;
+  }
+
+  return 1;
+}

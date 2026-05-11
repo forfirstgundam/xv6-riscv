@@ -112,6 +112,7 @@ int on_tick(void);
 uint64 mmap(uint64 addr, int length, int prot, int flags, int fd, int offset);
 int munmap(uint64 addr);
 uint64 do_mmap(uint64, int, int, int, int, int);
+int mmap_pagefault(uint64, int);
 
 // swtch.S
 void swtch(struct context *, struct context *);

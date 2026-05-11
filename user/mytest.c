@@ -12,26 +12,27 @@
 int main(void)
 {
     uint64 a;
-    int fd;
+    int before, after_mmap, after_touch;
+    int *p;
 
-    printf("---- mmap bookkeeping test ----\n");
+    printf("---- mmap page fault test ----\n");
+
+    before = freemem();
 
     a = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0);
-    printf("anon mmap returned: %lx\n", a);
+    after_mmap = freemem();
 
-    fd = open("README", O_RDONLY);
-    if (fd < 0)
-    {
-        printf("open README failed\n");
-        exit(1);
-    }
+    printf("mmap returned: 0x%lx\n", a);
+    printf("before mmap: %d\n", before);
+    printf("after mmap: %d\n", after_mmap);
 
-    a = mmap(4096, 4096, PROT_READ, 0, fd, 0);
-    printf("file mmap returned: %lx\n", a);
+    p = (int *)a;
+    *p = 12345; // should cause page fault and allocate one page
 
-    close(fd);
+    after_touch = freemem();
 
-    printf("freemem = %d\n", freemem());
+    printf("*p = %d\n", *p);
+    printf("after touch: %d\n", after_touch);
 
     exit(0);
 }
