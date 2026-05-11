@@ -17,7 +17,7 @@ int main(void)
     printf("---- mmap bookkeeping test ----\n");
 
     a = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0);
-    printf("anon mmap returned: %p\n", a);
+    printf("anon mmap returned: %lx\n", a);
 
     fd = open("README", O_RDONLY);
     if (fd < 0)
@@ -27,7 +27,7 @@ int main(void)
     }
 
     a = mmap(4096, 4096, PROT_READ, 0, fd, 0);
-    printf("file mmap returned: %p\n", a);
+    printf("file mmap returned: %lx\n", a);
 
     close(fd);
 
