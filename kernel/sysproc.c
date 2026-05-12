@@ -177,7 +177,11 @@ sys_mmap(void)
 uint64
 sys_munmap(void)
 {
-  return -1;
+  uint64 addr;
+
+  argaddr(0, &addr);
+
+  return do_munmap(addr);
 }
 
 uint64

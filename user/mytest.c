@@ -15,11 +15,13 @@ int main(void)
     int before, after_mmap, after_touch;
     int *p;
 
-    printf("---- mmap page fault test ----\n");
+    printf("---- project 3 test ----\n");
 
     before = freemem();
 
-    a = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0);
+    a = mmap(0, 4096, PROT_READ | PROT_WRITE,
+             MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+
     after_mmap = freemem();
 
     printf("mmap returned: 0x%lx\n", a);
@@ -27,12 +29,14 @@ int main(void)
     printf("after mmap: %d\n", after_mmap);
 
     p = (int *)a;
-    *p = 12345; // should cause page fault and allocate one page
+    *p = 777;
+    printf("*p = %d\n", *p);
 
     after_touch = freemem();
-
-    printf("*p = %d\n", *p);
     printf("after touch: %d\n", after_touch);
+
+    printf("munmap -> %d\n", munmap(a));
+    printf("after munmap: %d\n", freemem());
 
     exit(0);
 }

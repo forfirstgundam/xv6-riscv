@@ -27,6 +27,7 @@ extern uint ticks;
 extern struct spinlock tickslock;
 extern void forkret(void);
 static void freeproc(struct proc *p);
+static void mmap_cleanup(struct proc *p);
 
 // nice value to weight hard-coded list
 static int nice_to_weight[40] = {
@@ -481,10 +482,12 @@ void reparent(struct proc *p)
 void kexit(int status)
 {
   struct proc *p = myproc();
-
+  
   if (p == initproc)
-    panic("init exiting");
-
+  panic("init exiting");
+  
+  mmap_cleanup(p);
+  
   // Close all open files.
   for (int fd = 0; fd < NOFILE; fd++)
   {
@@ -1109,6 +1112,21 @@ do_mmap(uint64 addr, int length, int prot, int flags, int fd, int offset)
         filedup(f);
 
       release(&mmap_lock);
+      
+      if (flags & MAP_POPULATE)
+      {
+        uint64 va;
+
+        for (va = start; va < start + length; va += PGSIZE)
+        {
+          if (mmap_pf(va, 0) < 0)
+          {
+            do_munmap(start);
+            return 0;
+          }
+        }
+      }
+
       return start;
     }
   }
@@ -1117,7 +1135,7 @@ do_mmap(uint64 addr, int length, int prot, int flags, int fd, int offset)
   return 0;
 }
 
-int mmap_pagefault(uint64 va, int is_write)
+int mmap_pf(uint64 va, int is_write)
 {
   struct proc *p = myproc();
   struct mmap_area ma;
@@ -1191,4 +1209,167 @@ int mmap_pagefault(uint64 va, int is_write)
   }
 
   return 1;
+}
+
+static int
+pt_empty(pagetable_t pagetable)
+{
+  for (int i = 0; i < 512; i++)
+  {
+    if (pagetable[i] & PTE_V)
+      return 0;
+  }
+  return 1;
+}
+
+static void
+free_pt(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte2;
+  pte_t *pte1;
+  pagetable_t pt1;
+  pagetable_t pt0;
+
+  pte2 = &pagetable[PX(2, va)];
+  if ((*pte2 & PTE_V) == 0)
+    return;
+  if ((*pte2 & (PTE_R | PTE_W | PTE_X)) != 0)
+    return;
+
+  pt1 = (pagetable_t)PTE2PA(*pte2);
+
+  pte1 = &pt1[PX(1, va)];
+  if ((*pte1 & PTE_V) == 0)
+    return;
+  if ((*pte1 & (PTE_R | PTE_W | PTE_X)) != 0)
+    return;
+
+  pt0 = (pagetable_t)PTE2PA(*pte1);
+
+  if (pt_empty(pt0))
+  {
+    kfree((void *)pt0);
+    *pte1 = 0;
+  }
+
+  if (pt_empty(pt1))
+  {
+    kfree((void *)pt1);
+    *pte2 = 0;
+  }
+}
+
+static void
+unmap_p(struct mmap_area *ma)
+{
+  uint64 va;
+  pte_t *pte;
+  uint64 pa;
+  struct proc *p = ma->p;
+
+  for (va = ma->addr; va < ma->addr + ma->length; va += PGSIZE)
+  {
+    pte = walk(p->pagetable, va, 0);
+
+    if (pte == 0)
+      continue;
+
+    if ((*pte & PTE_V) == 0)
+      continue;
+
+    if ((*pte & (PTE_R | PTE_W | PTE_X)) == 0)
+      continue;
+
+    pa = PTE2PA(*pte);
+    kfree((void *)pa);
+    *pte = 0;
+
+    free_pt(p->pagetable, va);
+  }
+}
+
+int do_munmap(uint64 addr)
+{
+  struct proc *p = myproc();
+  struct mmap_area ma;
+  int found = 0;
+
+  if (addr % PGSIZE != 0)
+    return -1;
+
+  acquire(&mmap_lock);
+
+  for (int i = 0; i < NMMAPAREA; i++)
+  {
+    if (mmap_areas[i].p == p && mmap_areas[i].addr == addr)
+    {
+      ma = mmap_areas[i];
+
+      mmap_areas[i].p = 0;
+      mmap_areas[i].f = 0;
+      mmap_areas[i].addr = 0;
+      mmap_areas[i].length = 0;
+      mmap_areas[i].offset = 0;
+      mmap_areas[i].prot = 0;
+      mmap_areas[i].flags = 0;
+
+      found = 1;
+      break;
+    }
+  }
+
+  release(&mmap_lock);
+
+  if (!found)
+    return -1;
+
+  unmap_p(&ma);
+
+  if (ma.f)
+    fileclose(ma.f);
+
+  return 1;
+}
+
+static void
+mmap_cleanup(struct proc *p)
+{
+  struct mmap_area ma;
+  int found;
+
+  for (;;)
+  {
+    found = 0;
+
+    acquire(&mmap_lock);
+
+    for (int i = 0; i < NMMAPAREA; i++)
+    {
+      if (mmap_areas[i].p == p)
+      {
+        ma = mmap_areas[i];
+
+        mmap_areas[i].p = 0;
+        mmap_areas[i].f = 0;
+        mmap_areas[i].addr = 0;
+        mmap_areas[i].length = 0;
+        mmap_areas[i].offset = 0;
+        mmap_areas[i].prot = 0;
+        mmap_areas[i].flags = 0;
+
+        found = 1;
+        break;
+      }
+    }
+
+    release(&mmap_lock);
+
+    if (!found)
+      break;
+
+    unmap_p(&ma);
+
+    if (ma.f)
+      fileclose(ma.f);
+  }
 }
