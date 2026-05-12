@@ -28,6 +28,7 @@ extern struct spinlock tickslock;
 extern void forkret(void);
 static void freeproc(struct proc *p);
 static void mmap_cleanup(struct proc *p);
+static int mmap_fork(struct proc *parent, struct proc *child);
 
 // nice value to weight hard-coded list
 static int nice_to_weight[40] = {
@@ -422,6 +423,15 @@ int kfork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // project 3 : copy mmap areas
+  if (mmap_fork(p, np) < 0)
+  {
+    mmap_cleanup(np);
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -1112,7 +1122,7 @@ do_mmap(uint64 addr, int length, int prot, int flags, int fd, int offset)
         filedup(f);
 
       release(&mmap_lock);
-      
+
       if (flags & MAP_POPULATE)
       {
         uint64 va;
@@ -1372,4 +1382,103 @@ mmap_cleanup(struct proc *p)
     if (ma.f)
       fileclose(ma.f);
   }
+}
+
+static int
+cp_mmap(struct mmap_area *ma, struct proc *child)
+{
+  uint64 va;
+  pte_t *pte;
+  uint64 pa;
+  char *mem;
+  int flags;
+
+  for (va = ma->addr; va < ma->addr + ma->length; va += PGSIZE)
+  {
+    pte = walk(ma->p->pagetable, va, 0);
+
+    if (pte == 0)
+      continue;
+
+    if ((*pte & PTE_V) == 0)
+      continue;
+
+    if ((*pte & (PTE_R | PTE_W | PTE_X)) == 0)
+      continue;
+
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+
+    mem = kalloc();
+    if (mem == 0)
+      return -1;
+
+    memmove(mem, (char *)pa, PGSIZE);
+
+    if (mappages(child->pagetable, va, PGSIZE, (uint64)mem, flags) < 0)
+    {
+      kfree(mem);
+      return -1;
+    }
+  }
+
+  return 0;
+}
+
+static int
+mmap_fork(struct proc *parent, struct proc *child)
+{
+  struct mmap_area ma;
+  struct file *fdup;
+  int found;
+
+  for (int i = 0; i < NMMAPAREA; i++)
+  {
+    acquire(&mmap_lock);
+
+    if (mmap_areas[i].p != parent)
+    {
+      release(&mmap_lock);
+      continue;
+    }
+
+    ma = mmap_areas[i];
+
+    release(&mmap_lock);
+
+    fdup = 0;
+    if (ma.f)
+      fdup = filedup(ma.f);
+
+    acquire(&mmap_lock);
+
+    found = -1;
+    for (int j = 0; j < NMMAPAREA; j++)
+    {
+      if (mmap_areas[j].p == 0)
+      {
+        found = j;
+        break;
+      }
+    }
+
+    if (found < 0)
+    {
+      release(&mmap_lock);
+      if (fdup)
+        fileclose(fdup);
+      return -1;
+    }
+
+    mmap_areas[found] = ma;
+    mmap_areas[found].p = child;
+    mmap_areas[found].f = fdup;
+
+    release(&mmap_lock);
+
+    if (cp_mmap(&ma, child) < 0)
+      return -1;
+  }
+
+  return 0;
 }
