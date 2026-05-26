@@ -117,10 +117,26 @@ walkaddr(pagetable_t pagetable, uint64 va)
   pte = walk(pagetable, va, 0);
   if(pte == 0)
     return 0;
+
+  if((*pte & PTE_V) == 0) {
+    if(*pte & PTE_SWAP) {
+      if(swapin(pagetable, va) < 0)
+        return 0;
+
+      pte = walk(pagetable, va, 0);
+      if(pte == 0)
+        return 0;
+    } else {
+      return 0;
+    }
+  }
+
   if((*pte & PTE_V) == 0)
     return 0;
+
   if((*pte & PTE_U) == 0)
     return 0;
+
   pa = PTE2PA(*pte);
   return pa;
 }
@@ -189,15 +205,31 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
+
+    if((*pte & PTE_V) == 0){
+      if(*pte & PTE_SWAP){
+        int slot = (*pte >> 10);
+
+        swap_free_slot(slot);
+        *pte = 0;
+        continue;
+      }
+
       panic("uvmunmap: not mapped");
-    if(PTE_FLAGS(*pte) == PTE_V)
+    }
+
+    if((*pte & (PTE_R | PTE_W | PTE_X)) == 0)
       panic("uvmunmap: not a leaf");
+
     if(do_free){
       uint64 pa = PTE2PA(*pte);
-      lru_remove(pa);
+
+      if(*pte & PTE_U)
+        lru_remove(pa);
+
       kfree((void*)pa);
     }
+
     *pte = 0;
   }
 }
@@ -324,21 +356,37 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+
+    if((*pte & PTE_V) == 0){
+      if(*pte & PTE_SWAP){
+        if(swapin(old, i) < 0)
+          goto err;
+
+        pte = walk(old, i, 0);
+        if(pte == 0 || (*pte & PTE_V) == 0)
+          goto err;
+      } else {
+        panic("uvmcopy: page not present");
+      }
+    }
+
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
+
     if((mem = kalloc()) == 0)
       goto err;
+
     memmove(mem, (char*)pa, PGSIZE);
+
     if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
       kfree(mem);
       goto err;
     }
   }
+
   return 0;
 
- err:
+err:
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
 }
