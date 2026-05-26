@@ -29,10 +29,17 @@ struct page *page_lru_head;
 int num_free_pages;
 int num_lru_pages;
 
+struct spinlock lru_lock;
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&lru_lock, "lru");
+
+  page_lru_head = 0;
+  num_lru_pages = 0;
+
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -86,4 +93,170 @@ kalloc(void)
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+static void
+lru_insert(struct page *pg)
+{
+  struct page *tail;
+
+  if(page_lru_head == 0) {
+    pg->next = pg;
+    pg->prev = pg;
+    page_lru_head = pg;
+  } else {
+    tail = page_lru_head->prev;
+
+    pg->next = page_lru_head;
+    pg->prev = tail;
+
+    tail->next = pg;
+    page_lru_head->prev = pg;
+  }
+
+  num_lru_pages++;
+}
+
+void
+lru_add(pagetable_t pagetable, uint64 va, uint64 pa)
+{
+  struct page *pg;
+
+  if(pa >= PHYSTOP)
+    panic("lru_add");
+
+  pg = &pages[pa / PGSIZE];
+
+  acquire(&lru_lock);
+
+  // Already on LRU list.
+  if(pg->pagetable != 0) {
+    release(&lru_lock);
+    return;
+  }
+
+  pg->pagetable = pagetable;
+  pg->vaddr = (char *)PGROUNDDOWN(va);
+
+  lru_insert(pg);
+
+  release(&lru_lock);
+}
+
+static void
+lru_detach_locked(struct page *pg)
+{
+  if(pg->pagetable == 0)
+    return;
+
+  if(pg->next == pg) {
+    page_lru_head = 0;
+  } else {
+    pg->prev->next = pg->next;
+    pg->next->prev = pg->prev;
+
+    if(page_lru_head == pg)
+      page_lru_head = pg->next;
+  }
+
+  pg->next = 0;
+  pg->prev = 0;
+  num_lru_pages--;
+}
+
+void
+lru_remove(uint64 pa)
+{
+  struct page *pg;
+
+  if(pa >= PHYSTOP)
+    return;
+
+  pg = &pages[pa / PGSIZE];
+
+  acquire(&lru_lock);
+
+  if(pg->pagetable == 0) {
+    release(&lru_lock);
+    return;
+  }
+
+  lru_detach_locked(pg);
+
+  pg->pagetable = 0;
+  pg->vaddr = 0;
+
+  release(&lru_lock);
+}
+
+static void
+lru_move_tail_locked(struct page *pg)
+{
+  struct page *tail;
+
+  if(page_lru_head == 0 || pg->next == pg)
+    return;
+
+  lru_detach_locked(pg);
+
+  if(page_lru_head == 0) {
+    pg->next = pg;
+    pg->prev = pg;
+    page_lru_head = pg;
+  } else {
+    tail = page_lru_head->prev;
+
+    pg->next = page_lru_head;
+    pg->prev = tail;
+
+    tail->next = pg;
+    page_lru_head->prev = pg;
+  }
+
+  num_lru_pages++;
+}
+
+struct page *
+lru_select_victim(void)
+{
+  struct page *pg;
+  pte_t *pte;
+
+  acquire(&lru_lock);
+
+  while(page_lru_head != 0) {
+    pg = page_lru_head;
+
+    if(pg->pagetable == 0 || pg->vaddr == 0) {
+      lru_detach_locked(pg);
+      pg->pagetable = 0;
+      pg->vaddr = 0;
+      continue;
+    }
+
+    pte = walk(pg->pagetable, (uint64)pg->vaddr, 0);
+
+    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0) {
+      lru_detach_locked(pg);
+      pg->pagetable = 0;
+      pg->vaddr = 0;
+      continue;
+    }
+
+    if(*pte & PTE_A) {
+      *pte &= ~PTE_A;
+      lru_move_tail_locked(pg);
+      continue;
+    }
+
+    // Found victim. Remove from LRU, but keep pagetable/vaddr
+    // so swap-out code can update the PTE.
+    lru_detach_locked(pg);
+
+    release(&lru_lock);
+    return pg;
+  }
+
+  release(&lru_lock);
+  return 0;
 }

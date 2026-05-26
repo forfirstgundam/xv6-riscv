@@ -66,6 +66,9 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+void            lru_add(pagetable_t, uint64, uint64);
+void            lru_remove(uint64);
+struct page     *lru_select_victim(void);
 
 // log.c
 void            initlog(int, struct superblock*);
