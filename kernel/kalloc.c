@@ -8,6 +8,9 @@
 #include "spinlock.h"
 #include "riscv.h"
 #include "defs.h"
+#include "fs.h"
+
+#define NSWAPPAGE (SWAPMAX / (PGSIZE / BSIZE))
 
 void freerange(void *pa_start, void *pa_end);
 
@@ -29,18 +32,32 @@ struct page *page_lru_head;
 int num_free_pages;
 int num_lru_pages;
 
+char *swap_bitmap;
+struct spinlock swap_lock;
+
 struct spinlock lru_lock;
+
+// add function names
+static int swap_alloc_slot(void);
+static void *swapout(void);
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
   initlock(&lru_lock, "lru");
+  initlock(&swap_lock, "swap");
 
   page_lru_head = 0;
   num_lru_pages = 0;
+  num_free_pages = 0;
 
   freerange(end, (void*)PHYSTOP);
+
+  swap_bitmap = kalloc();
+  if(swap_bitmap == 0)
+    panic("kinit: no swap bitmap");
+  memset(swap_bitmap, 0, PGSIZE);
 }
 
 void
@@ -72,6 +89,7 @@ kfree(void *pa)
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
+  num_free_pages++;
   release(&kmem.lock);
 }
 
@@ -86,12 +104,18 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r) {
     kmem.freelist = r->next;
+    num_free_pages--;
+  }
   release(&kmem.lock);
 
+  if(r == 0)
+    r = (struct run *)swapout();
+
   if(r)
-    memset((char*)r, 5, PGSIZE); // fill with junk
+    memset((char*)r, 5, PGSIZE);
+
   return (void*)r;
 }
 
@@ -259,4 +283,92 @@ lru_select_victim(void)
 
   release(&lru_lock);
   return 0;
+}
+
+static int
+swap_alloc_slot(void)
+{
+  int i;
+  int byte;
+  int bit;
+
+  acquire(&swap_lock);
+
+  for(i = 0; i < NSWAPPAGE; i++) {
+    byte = i / 8;
+    bit = i % 8;
+
+    if((swap_bitmap[byte] & (1 << bit)) == 0) {
+      swap_bitmap[byte] |= (1 << bit);
+      release(&swap_lock);
+      return i;
+    }
+  }
+
+  release(&swap_lock);
+  return -1;
+}
+
+void
+swap_free_slot(int slot)
+{
+  int byte;
+  int bit;
+
+  if(slot < 0 || slot >= NSWAPPAGE)
+    return;
+
+  byte = slot / 8;
+  bit = slot % 8;
+
+  acquire(&swap_lock);
+  swap_bitmap[byte] &= ~(1 << bit);
+  release(&swap_lock);
+}
+
+static void *
+swapout(void)
+{
+  struct page *victim;
+  pte_t *pte;
+  uint64 pa;
+  int slot;
+  uint64 flags;
+
+  victim = lru_select_victim();
+
+  if(victim == 0) {
+    printf("kalloc: OOM, no page in LRU list\n");
+    return 0;
+  }
+
+  pte = walk(victim->pagetable, (uint64)victim->vaddr, 0);
+  if(pte == 0 || (*pte & PTE_V) == 0) {
+    printf("swapout: bad victim pte\n");
+    victim->pagetable = 0;
+    victim->vaddr = 0;
+    return 0;
+  }
+
+  slot = swap_alloc_slot();
+  if(slot < 0) {
+    printf("kalloc: OOM, no swap slot\n");
+    return 0;
+  }
+
+  pa = PTE2PA(*pte);
+  flags = PTE_FLAGS(*pte);
+
+  swapwrite(pa, slot);
+
+  // Store swap slot in PPN field, clear valid bit, mark as swapped.
+  *pte = ((uint64)slot << 10) | ((flags & ~PTE_V) | PTE_SWAP);
+  *pte &= ~PTE_A;
+
+  sfence_vma();
+
+  victim->pagetable = 0;
+  victim->vaddr = 0;
+
+  return (void *)pa;
 }

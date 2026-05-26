@@ -712,8 +712,7 @@ swapread(uint64 ptr, int blkno)
   for(i = 0; i < BLKS_PER_PG; i++){
     nr_sectors_read++;
     bp = bread(0, SWAPBASE + BLKS_PER_PG * blkno + i);
-    if(either_copyout(1, ptr + i * BSIZE, bp->data, BSIZE) == -1)
-      panic("swapread: either_copyout failed");
+    memmove((void *)(ptr + i * BSIZE), bp->data, BSIZE);
     brelse(bp);
   }
 }
@@ -732,9 +731,47 @@ swapwrite(uint64 ptr, int blkno)
   for(i = 0; i < BLKS_PER_PG; i++){
     nr_sectors_write++;
     bp = bread(0, SWAPBASE + BLKS_PER_PG * blkno + i);
-    if(either_copyin(bp->data, 1, ptr + i * BSIZE, BSIZE) == -1)
-      panic("swapwrite: either_copyin failed");
+    memmove(bp->data, (void *)(ptr + i * BSIZE), BSIZE);
     bwrite(bp);
     brelse(bp);
   }
+}
+// pa4 swap in
+int
+swapin(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte;
+  uint64 mem;
+  int slot;
+  uint64 flags;
+
+  va = PGROUNDDOWN(va);
+
+  pte = walk(pagetable, va, 0);
+  if(pte == 0)
+    return -1;
+
+  if((*pte & PTE_SWAP) == 0)
+    return -1;
+
+  slot = (*pte >> 10);
+
+  mem = (uint64)kalloc();
+  if(mem == 0)
+    return -1;
+
+  swapread(mem, slot);
+  swap_free_slot(slot);
+
+  flags = PTE_FLAGS(*pte);
+  flags &= ~PTE_SWAP;
+  flags |= PTE_V;
+
+  *pte = PA2PTE(mem) | flags;
+
+  lru_add(pagetable, va, mem);
+
+  sfence_vma();
+
+  return 0;
 }
